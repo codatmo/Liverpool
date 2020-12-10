@@ -126,8 +126,8 @@ parameters {
   real<lower=0, upper=1> omega;
   real<lower=0> reciprocal_phi_deaths;
   real<lower=0> reciprocal_phi_calls_111;
-  real<lower=0> rho[n_rho_pieces];
-  simplex[max_lag+1] lag_weights;
+  real<lower=0> rho_calls_111[n_rho_pieces];
+  simplex[max_lag+1] lag_weights_calls_111;
 }
 transformed parameters {
   real initial_state[n_disease_states];
@@ -190,16 +190,16 @@ transformed parameters {
   daily_infections = S[:T] - S[2:] + machine_precision();
   daily_deaths = D[2:] - D[:T];
 
-  calls_111_lagged_daily_infections = lag_weights[1]*daily_infections;
+  calls_111_lagged_daily_infections = lag_weights_calls_111[1]*daily_infections;
 
   for (i in 1:max_lag) {
-    calls_111_lagged_daily_infections += lag_weights[i+1]*append_row(rep_vector(0.0, i), daily_infections[:T-i]);
+    calls_111_lagged_daily_infections += lag_weights_calls_111[i+1]*append_row(rep_vector(0.0, i), daily_infections[:T-i]);
   }
 
   daily_calls_111 = rep_vector(0.0, T);
 
   for (i in 1:n_rho_pieces) {
-    daily_calls_111[rho_left_t[i]:rho_right_t[i]-1] = calls_111_lagged_daily_infections[rho_left_t[i]:rho_right_t[i]-1] * rho[i];
+    daily_calls_111[rho_left_t[i]:rho_right_t[i]-1] = calls_111_lagged_daily_infections[rho_left_t[i]:rho_right_t[i]-1] * rho_calls_111[i];
   }
 }
 model {
@@ -213,8 +213,8 @@ model {
   omega ~ beta(100, 9803);
   reciprocal_phi_deaths ~ exponential(5);
   reciprocal_phi_calls_111 ~ exponential(5);
-  rho ~ normal(0, 0.5);
-  lag_weights ~ dirichlet(rep_vector(0.1, max_lag+1));
+  rho_calls_111 ~ normal(0, 0.5);
+  lag_weights_calls_111 ~ dirichlet(rep_vector(0.1, max_lag+1));
 
   for (i in 1:deaths_length) {
     target += 7.0*neg_binomial_2_lpmf(deaths[i] | sum(daily_deaths[deaths_starts[i]:deaths_stops[i]]), phi_deaths);
