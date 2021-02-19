@@ -88,9 +88,12 @@ data {
   int<lower=1> n_beta_pieces;
   real<lower=0> beta_left_t[n_beta_pieces];
   real<lower=0> beta_right_t[n_beta_pieces];
-  int<lower=1> n_rho_pieces;
-  int<lower=0> rho_left_t[n_rho_pieces];
-  int<lower=0> rho_right_t[n_rho_pieces];
+  int<lower=1> n_rho_calls_111_pieces;
+  int<lower=0> rho_calls_111_left_t[n_rho_calls_111_pieces];
+  int<lower=0> rho_calls_111_right_t[n_rho_calls_111_pieces];
+  int<lower=1> n_rho_online_assessments_111_pieces;
+  int<lower=0> rho_online_assessments_111_left_t[n_rho_online_assessments_111_pieces];
+  int<lower=0> rho_online_assessments_111_right_t[n_rho_online_assessments_111_pieces];
   int<lower=1> T;
   real times[T];
   int<lower=1> n_disease_states;
@@ -130,8 +133,8 @@ parameters {
   real<lower=0> reciprocal_phi_deaths;
   real<lower=0> reciprocal_phi_calls_111;
   real<lower=0> reciprocal_phi_online_assessments_111;
-  real<lower=0> rho_calls_111[n_rho_pieces];
-  real<lower=0> rho_online_assessments_111[n_rho_pieces];
+  real<lower=0> rho_calls_111[n_rho_calls_111_pieces];
+  real<lower=0> rho_online_assessments_111[n_rho_online_assessments_111_pieces];
   simplex[max_lag+1] lag_weights_calls_111;
   simplex[max_lag+1] lag_weights_online_assessments_111;
 }
@@ -208,8 +211,8 @@ transformed parameters {
 
   daily_calls_111 = rep_vector(0.0, T);
 
-  for (i in 1:n_rho_pieces) {
-    daily_calls_111[rho_left_t[i]:rho_right_t[i]-1] = calls_111_lagged_daily_infections[rho_left_t[i]:rho_right_t[i]-1] * rho_calls_111[i];
+  for (i in 1:n_rho_calls_111_pieces) {
+    daily_calls_111[rho_calls_111_left_t[i]:rho_calls_111_right_t[i]-1] = calls_111_lagged_daily_infections[rho_calls_111_left_t[i]:rho_calls_111_right_t[i]-1] * rho_calls_111[i];
   }
 
   online_assessments_111_lagged_daily_infections = lag_weights_online_assessments_111[1]*daily_infections;
@@ -220,8 +223,8 @@ transformed parameters {
 
   daily_online_assessments_111 = rep_vector(0.0, T);
 
-  for (i in 1:n_rho_pieces) {
-    daily_online_assessments_111[rho_left_t[i]:rho_right_t[i]-1] = online_assessments_111_lagged_daily_infections[rho_left_t[i]:rho_right_t[i]-1] * rho_online_assessments_111[i];
+  for (i in 1:n_rho_online_assessments_111_pieces) {
+    daily_online_assessments_111[rho_online_assessments_111_left_t[i]:rho_online_assessments_111_right_t[i]-1] = online_assessments_111_lagged_daily_infections[rho_online_assessments_111_left_t[i]:rho_online_assessments_111_right_t[i]-1] * rho_online_assessments_111[i];
   }
 }
 model {
@@ -245,12 +248,12 @@ model {
     target += 7.0*neg_binomial_2_lpmf(deaths[i] | sum(daily_deaths[deaths_starts[i]:deaths_stops[i]]), phi_deaths);
   }
 
-  for (i in 1:n_rho_pieces) {
-    target += neg_binomial_2_lpmf(calls_111[rho_left_t[i]-calls_111_start+1:rho_right_t[i]-calls_111_start] | daily_calls_111[rho_left_t[i]:rho_right_t[i]-1], phi_calls_111);
+  for (i in 1:n_rho_calls_111_pieces) {
+    target += neg_binomial_2_lpmf(calls_111[rho_calls_111_left_t[i]-calls_111_start+1:rho_calls_111_right_t[i]-calls_111_start] | daily_calls_111[rho_calls_111_left_t[i]:rho_calls_111_right_t[i]-1], phi_calls_111);
   }
 
-  for (i in 1:n_rho_pieces) {
-    target += neg_binomial_2_lpmf(online_assessments_111[rho_left_t[i]-online_assessments_111_start+1:rho_right_t[i]-online_assessments_111_start] | daily_online_assessments_111[rho_left_t[i]:rho_right_t[i]-1], phi_online_assessments_111);
+  for (i in 1:n_rho_online_assessments_111_pieces) {
+    target += neg_binomial_2_lpmf(online_assessments_111[rho_online_assessments_111_left_t[i]-online_assessments_111_start+1:rho_online_assessments_111_right_t[i]-online_assessments_111_start] | daily_online_assessments_111[rho_online_assessments_111_left_t[i]:rho_online_assessments_111_right_t[i]-1], phi_online_assessments_111);
   }
 }
 generated quantities {
@@ -264,13 +267,13 @@ generated quantities {
 
   int pred_calls_111[calls_111_length];
 
-  for (i in 1:n_rho_pieces) {
-    pred_calls_111[rho_left_t[i]-calls_111_start+1:rho_right_t[i]-calls_111_start] = neg_binomial_2_rng(daily_calls_111[rho_left_t[i]:rho_right_t[i]-1], phi_calls_111);
+  for (i in 1:n_rho_calls_111_pieces) {
+    pred_calls_111[rho_calls_111_left_t[i]-calls_111_start+1:rho_calls_111_right_t[i]-calls_111_start] = neg_binomial_2_rng(daily_calls_111[rho_calls_111_left_t[i]:rho_calls_111_right_t[i]-1], phi_calls_111);
   }
 
   int pred_online_assessments_111[online_assessments_111_length];
 
-  for (i in 1:n_rho_pieces) {
-    pred_online_assessments_111[rho_left_t[i]-online_assessments_111_start+1:rho_right_t[i]-online_assessments_111_start] = neg_binomial_2_rng(daily_online_assessments_111[rho_left_t[i]:rho_right_t[i]-1], phi_online_assessments_111);
+  for (i in 1:n_rho_online_assessments_111_pieces) {
+    pred_online_assessments_111[rho_online_assessments_111_left_t[i]-online_assessments_111_start+1:rho_online_assessments_111_right_t[i]-online_assessments_111_start] = neg_binomial_2_rng(daily_online_assessments_111[rho_online_assessments_111_left_t[i]:rho_online_assessments_111_right_t[i]-1], phi_online_assessments_111);
   }
 }
