@@ -1,0 +1,108 @@
+---
+title: "Liverpool Covid Model"
+author: "Alex Phillips"
+date: "10/3/2021"
+output: 
+  html_document
+    
+---
+
+# Model overview
+
+
+## Problem description
+
+These models attempt to model the relationship between the numbers of phone calls to NHS 111 and/or NHS 111 online assessments reporting COVID-19 symptoms, and weekly recorded numbers of deaths from COVID-19.
+
+## Model description
+
+## Data 
+
+An R script for generating some simulated data (based on the priors in the model) is in `src/scripts/generateSimulatedData.R` which can be used as follows:
+```{r}
+source("src/scripts/generateSimulatedData.R")
+generatedData <- generateSimulatedData(
+  seed = 0,
+  maxTime = 100,
+  population = 1000000,
+  n_beta_pieces = 20,
+  n_rho_calls_111_pieces = 10,
+  calls_111_start = 30
+)
+
+stan_data <- generatedData$stan_data
+ground_truth <- generatedData$ground_truth
+
+```
+
+This data can then be fit to the deaths and calls model:
+
+```{r eval = F}
+library(rstan)
+options(mc.cores = parallel::detectCores()).
+rstan_options(auto_write = TRUE)
+
+initf <- function() {
+  n_beta_pieces <- stan_data$n_beta_pieces
+  
+  initial_state_raw = c(runif(1, min = 0.99999, max = 1.0), runif(1, min = 0.0, max = 1.0))
+  beta_left = exp(runif(n_beta_pieces, min = -2, max = 0.5))
+  beta_right = exp(runif(n_beta_pieces, min = -2, max = 0.5))
+  dL = runif(1, min = 3.5, max = 4.0)
+  dI = runif(1, min = 2.2, max = 2.6)
+  dT = runif(1, min = 11.0, max = 13.0)
+  omega = 1/(1 + exp(-runif(1, min = -5, max = -3)))
+  
+  list(
+    initial_state_raw = initial_state_raw,
+    beta_left = beta_left,
+    beta_right = beta_right,
+    dL = dL,
+    dI = dI,
+    dT = dT,
+    omega = omega
+  )
+}
+
+
+# generate a list of lists to specify initial values
+liverpoolModel <- stan_model("src/models/deaths_and_111_calls.stan")
+fit <- sampling(liverpoolModel, data = stan_data, init = initf)
+```
+
+## Data generating process
+
+
+### Data munging and examination
+
+## Stan program
+
+The Stan models are located at `Liverpool/src/models`:
+
+```{r echo=FALSE, message=FALSE, comment=NA}
+stan_file <- "src/models/deaths_and_111_calls.stan"
+lines <- readLines(stan_file)
+cat(paste(lines, "\n", sep=""), sep="")
+```
+
+## Running model
+
+
+## Model validation
+
+
+### Run posterior diagnostics
+
+### Prior predictive check
+
+#### Plotting simulations from priors
+
+### Parameter recovery with simulated data
+
+### Posterior predictive check
+
+### Cross validation
+
+### SBC validation
+
+
