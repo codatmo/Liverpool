@@ -34,14 +34,6 @@ functions {
     real D = state[8];
 
     real infection_rate;
-
-    for (i in 1:n_beta_pieces) {
-      if(time >= beta_left_t[i] && time < beta_right_t[i]) {
-        real beta = grad_beta[i] * (time - beta_left_t[i]) + beta_left[i];
-        infection_rate = beta * (I1 + I2) * S / population;
-      }
-    }
-
     real nuE1 = nu * E1;
     real nuE2 = nu * E2;
     real gammaI1 = gamma * I1;
@@ -49,14 +41,30 @@ functions {
     real kappaT1 = kappa * T1;
     real kappaT2 = kappa * T2;
 
-    real dS_dt = -infection_rate;
-    real dE1_dt = infection_rate - nuE1;
-    real dE2_dt = nuE1 - nuE2;
-    real dI1_dt = nuE2 - gammaI1;
-    real dI2_dt = gammaI1 - gammaI2;
-    real dT1_dt = gammaI2 * omega - kappaT1;
-    real dT2_dt = kappaT1 - kappaT2;
-    real dD_dt = kappaT2;
+    real dS_dt;
+    real dE1_dt;
+    real dE2_dt;
+    real dI1_dt;
+    real dI2_dt;
+    real dT1_dt;
+    real dT2_dt;
+    real dD_dt;
+    
+    for (i in 1:n_beta_pieces) {
+      if(time >= beta_left_t[i] && time < beta_right_t[i]) {
+        real beta = grad_beta[i] * (time - beta_left_t[i]) + beta_left[i];
+        infection_rate = beta * (I1 + I2) * S / population;
+      }
+    }
+
+    dS_dt = -infection_rate;
+    dE1_dt = infection_rate - nuE1;
+    dE2_dt = nuE1 - nuE2;
+    dI1_dt = nuE2 - gammaI1;
+    dI2_dt = gammaI1 - gammaI2;
+    dT1_dt = gammaI2 * omega - kappaT1;
+    dT2_dt = kappaT1 - kappaT2;
+    dD_dt = kappaT2;
 
     return {dS_dt, dE1_dt, dE2_dt, dI1_dt, dI2_dt, dT1_dt, dT2_dt, dD_dt};
   }
@@ -228,12 +236,11 @@ generated quantities {
   vector[T-1] growth_rate = (log(daily_infections[2:]) - log(daily_infections[:T-1]))*100;
 
   int pred_deaths[deaths_length];
+  int pred_calls_111[calls_111_length];
 
   for (i in 1:deaths_length) {
     pred_deaths[i] = neg_binomial_2_rng(sum(daily_deaths[deaths_starts[i]:deaths_stops[i]]), phi_deaths);
   }
-
-  int pred_calls_111[calls_111_length];
 
   for (i in 1:n_rho_calls_111_pieces) {
     pred_calls_111[rho_calls_111_left_t[i]-calls_111_start+1:rho_calls_111_right_t[i]-calls_111_start] = neg_binomial_2_rng(daily_calls_111[rho_calls_111_left_t[i]:rho_calls_111_right_t[i]-1], phi_calls_111);
