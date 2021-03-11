@@ -179,9 +179,9 @@ generateSimulatedData <- function(
   })
   
   #Sample numbers of 111 calss
-  calls <- unlist(lapply(seq(1,n_rho_calls_111_pieces), function(i){
-    rnbinom(rho_calls_111_right_t[i] - rho_calls_111_left_t[i] + 1, mu  = daily_calls_111[rho_calls_111_left_t[i]:(rho_calls_111_right_t[i]-1)], size = phi_calls_111)
-  }))
+  calls <- sapply(seq(calls_111_start,maxTime), function(i){
+    rnbinom(1, mu  = daily_calls_111[i], size = phi_calls_111)
+  })
   
   #Data for Stan model
   stan_data = list(
