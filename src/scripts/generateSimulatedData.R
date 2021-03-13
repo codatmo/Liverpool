@@ -73,7 +73,8 @@ generateSimulatedData <- function(
   population = 1000000,
   n_beta_pieces = 20,
   n_rho_calls_111_pieces = 10,
-  calls_111_start = 30
+  calls_111_start = 30,
+  maxOutputTime = maxTime
 ){
   
   set.seed(seed)
@@ -182,6 +183,17 @@ generateSimulatedData <- function(
   calls <- sapply(seq(calls_111_start,maxTime), function(i){
     rnbinom(1, mu  = daily_calls_111[i], size = phi_calls_111)
   })
+  
+  #Only output data up to maxOutputTime
+  if (maxOutputTime < maxTime){
+    uncensoredDeathIndexes <- which(deathStops <= maxOutputTime)
+    uncensoredCallIndexes <- seq(1,min(maxTime, maxOutputTime) - (calls_111_start - 1))
+    
+    weekly_deaths <- weekly_deaths[uncensoredDeathIndexes]
+    deathStarts <- deathStarts[uncensoredDeathIndexes]
+    deathStops <- deathStops[uncensoredDeathIndexes]
+    calls <- calls[uncensoredCallIndexes]
+  }
   
   #Data for Stan model
   stan_data = list(
