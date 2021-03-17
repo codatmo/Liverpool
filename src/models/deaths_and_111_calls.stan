@@ -225,12 +225,11 @@ model {
   lag_weights_calls_111 ~ dirichlet(rep_vector(0.1, max_lag+1));
 
   for (i in 1:deaths_length) {
-    target += 7.0*neg_binomial_2_lpmf(deaths[i] | sum(daily_deaths[deaths_starts[i]:deaths_stops[i]]), phi_deaths);
+    target += neg_binomial_2_lpmf(deaths[i] | sum(daily_deaths[deaths_starts[i]:deaths_stops[i]]), phi_deaths);
   }
 
-  for (i in 1:n_rho_calls_111_pieces) {
-    target += neg_binomial_2_lpmf(calls_111[rho_calls_111_left_t[i]-calls_111_start+1:rho_calls_111_right_t[i]-calls_111_start] | daily_calls_111[rho_calls_111_left_t[i]:rho_calls_111_right_t[i]-1], phi_calls_111);
-  }
+  target += neg_binomial_2_lpmf(calls_111 | daily_calls_111[calls_111_start:(calls_111_start-1)+calls_111_length], phi_calls_111);
+  
 }
 generated quantities {
   vector[T-1] growth_rate = (log(daily_infections[2:]) - log(daily_infections[:T-1]))*100;
@@ -242,7 +241,7 @@ generated quantities {
     pred_deaths[i] = neg_binomial_2_rng(sum(daily_deaths[deaths_starts[i]:deaths_stops[i]]), phi_deaths);
   }
 
-  for (i in 1:n_rho_calls_111_pieces) {
-    pred_calls_111[rho_calls_111_left_t[i]-calls_111_start+1:rho_calls_111_right_t[i]-calls_111_start] = neg_binomial_2_rng(daily_calls_111[rho_calls_111_left_t[i]:rho_calls_111_right_t[i]-1], phi_calls_111);
+  for (i in 1:calls_111_length) {
+    pred_calls_111[i] = neg_binomial_2_rng(daily_calls_111[calls_111_start - 1 + i], phi_calls_111);
   }
 }
