@@ -74,8 +74,16 @@ generateSimulatedData <- function(
   n_beta_pieces = 20,
   n_rho_calls_111_pieces = 10,
   calls_111_start = 30,
+  n_rho_online_assessments_111_pieces = 10,
+  online_assessments_111_start = 30,
+  outputCalls = T,
+  outputOnlineAssessments = F,
   maxOutputTime = maxTime
 ){
+  
+  if (!(outputCalls|outputOnlineAssessments)){
+    stop("Either (or both) of `outputCalls` or `outputOnlineAssessments` must be TRUE")
+  }
   
   set.seed(seed)
   initial_time <- 0
@@ -85,10 +93,13 @@ generateSimulatedData <- function(
   beta_left_t <- seq(0,maxTime-1,by = beta_pieceLength)
   beta_right_t <- c(beta_left_t[2:n_beta_pieces], maxTime+1)
   
-  rho_pieceLength <- ceiling((maxTime - calls_111_start)/n_rho_calls_111_pieces)
-  rho_calls_111_left_t <- seq(calls_111_start,maxTime-1,by = rho_pieceLength)
+  rho_calls_pieceLength <- ceiling((maxTime - calls_111_start)/n_rho_calls_111_pieces)
+  rho_calls_111_left_t <- seq(calls_111_start,maxTime-1,by = rho_calls_pieceLength)
   rho_calls_111_right_t <- c(rho_calls_111_left_t[2:n_rho_calls_111_pieces], maxTime+1)
 
+  rho_online_assessments_pieceLength <- ceiling((maxTime - online_assessments_111_start)/n_rho_online_assessments_111_pieces)
+  rho_online_assessments_111_left_t <- seq(online_assessments_111_start,maxTime-1,by = rho_online_assessments_pieceLength)
+  rho_online_assessments_111_right_t <- c(rho_online_assessments_111_left_t[2:n_rho_online_assessments_111_pieces], maxTime+1)
 
   #Deaths are reported weekly, reporting periods are every seven days
   deathStarts <- seq(1,maxTime, by = 7)
@@ -118,13 +129,17 @@ generateSimulatedData <- function(
   dT <- rnorm(1, mu_dT, sigma_dT)
   omega <- rbeta(1, 100, 9803)
   
-  #rho_calls_111 is half-normal
+  #rho_calls_111 and rho_online_assessments_111 are half-normal
   rho_calls_111 <- abs(rnorm(n_rho_calls_111_pieces, 0, 0.5))
+  rho_online_assessments_111 <- abs(rnorm(n_rho_online_assessments_111_pieces, 0, 0.5))
   
   reciprocal_phi_deaths <- rexp(1, 5)
   reciprocal_phi_calls_111 <- rexp(1, 5)
+  reciprocal_phi_online_assessments_111 <- rexp(1, 5)
+  
   
   lag_weights_calls_111 <- rdirichlet(1, rep(c(0.1), max_lag+1))
+  lag_weights_online_assessments_111 <- rdirichlet(1, rep(c(0.1), max_lag+1))
   
   #Calculate initial state
   initial_state <- rep(c(0.0), 8)
@@ -137,6 +152,7 @@ generateSimulatedData <- function(
   grad_beta <- (beta_right - beta_left) / (beta_right_t - beta_left_t)
   phi_deaths <- 1/reciprocal_phi_deaths
   phi_calls_111 <- 1/reciprocal_phi_calls_111
+  phi_online_assessments_111 <- 1/reciprocal_phi_online_assessments_111
   
   params = list(
     n_beta_pieces = n_beta_pieces,
@@ -164,14 +180,25 @@ generateSimulatedData <- function(
   
 
   #Calculate daily calls given lagged infections
-    calls_111_lagged_daily_infections <- lag_weights_calls_111[1] * daily_infections
+  calls_111_lagged_daily_infections <- lag_weights_calls_111[1] * daily_infections
   for(i in 1:max_lag){
     calls_111_lagged_daily_infections <-  calls_111_lagged_daily_infections + lag_weights_calls_111[i+1] * c(rep(0,i), daily_infections[1:(length(daily_infections) - i)])
+  }
+  
+  #Calculate daily online assessments given lagged infections
+  online_assessments_111_lagged_daily_infections <- lag_weights_online_assessments_111[1] * daily_infections
+  for(i in 1:max_lag){
+    online_assessments_111_lagged_daily_infections <- online_assessments_111_lagged_daily_infections + lag_weights_online_assessments_111[i+1] * c(rep(0,i), daily_infections[1:(length(daily_infections) - i)])
   }
   
   daily_calls_111 = rep(0,length(daily_infections))
   for(i in 1:n_rho_calls_111_pieces){
     daily_calls_111[rho_calls_111_left_t[i]:(rho_calls_111_right_t[i]-1)] <- calls_111_lagged_daily_infections[rho_calls_111_left_t[i]:(rho_calls_111_right_t[i]-1)] * rho_calls_111[i]
+  }
+  
+  daily_online_assessments_111 = rep(0,length(daily_infections))
+  for(i in 1:n_rho_online_assessments_111_pieces){
+    daily_online_assessments_111[rho_online_assessments_111_left_t[i]:(rho_online_assessments_111_right_t[i]-1)] <- online_assessments_111_lagged_daily_infections[rho_online_assessments_111_left_t[i]:(rho_online_assessments_111_right_t[i]-1)] * rho_online_assessments_111[i]
   }
   
   #Sample weekly death reports
@@ -184,15 +211,22 @@ generateSimulatedData <- function(
     rnbinom(1, mu  = daily_calls_111[i], size = phi_calls_111)
   })
   
+  #Sample numbers of 111 calss
+  online_assessments <- sapply(seq(online_assessments_111_start,maxTime), function(i){
+    rnbinom(1, mu  = daily_online_assessments_111[i], size = phi_online_assessments_111)
+  })
+  
   #Only output data up to maxOutputTime
   if (maxOutputTime < maxTime){
     uncensoredDeathIndexes <- which(deathStops <= maxOutputTime)
     uncensoredCallIndexes <- seq(1,min(maxTime, maxOutputTime) - (calls_111_start - 1))
+    uncensoredOnlineAssessmentsIndexes <- seq(1,min(maxTime, maxOutputTime) - (online_assessments_111_start - 1))
     
     weekly_deaths <- weekly_deaths[uncensoredDeathIndexes]
     deathStarts <- deathStarts[uncensoredDeathIndexes]
     deathStops <- deathStops[uncensoredDeathIndexes]
     calls <- calls[uncensoredCallIndexes]
+    online_assessments <- online_assessments[uncensoredOnlineAssessmentsIndexes]
   }
   
   #Data for Stan model
@@ -201,9 +235,7 @@ generateSimulatedData <- function(
     n_beta_pieces = n_beta_pieces,
     beta_left_t = beta_left_t,
     beta_right_t = beta_right_t,
-    n_rho_calls_111_pieces = n_rho_calls_111_pieces,
-    rho_calls_111_left_t = rho_calls_111_left_t,
-    rho_calls_111_right_t = rho_calls_111_right_t, 
+    
     T = maxTime,
     times = times,
     n_disease_states = n_disease_states,
@@ -212,15 +244,12 @@ generateSimulatedData <- function(
     deaths_starts = deathStarts,
     deaths_stops = deathStops,
     deaths = weekly_deaths,
-    calls_111_length = length(calls),
-    calls_111_start = calls_111_start,
-    calls_111 = calls,
+    
     real_data_length = length(beta_left_t) + length(beta_right_t) + 1,
     real_data = c(beta_left_t, beta_right_t, population),
     integer_data_length = 5,
     integer_data = c(maxTime, length(beta_left_t), length(beta_right_t), length(beta_left_t), n_disease_states)
   )
-  
   
   #Return the ground truth values to compare against
   ground_truth = list(
@@ -232,14 +261,9 @@ generateSimulatedData <- function(
     dT = dT,
     omega = omega,
     
-    rho_calls_111 = rho_calls_111,
-    
     reciprocal_phi_deaths = reciprocal_phi_deaths,
-    reciprocal_phi_calls_111 = reciprocal_phi_calls_111,
+    
     phi_deaths = phi_deaths,
-    phi_calls_111 = phi_calls_111,
-
-    lag_weights_calls_111 = lag_weights_calls_111,
     initial_state = initial_state,
     grad_beta = grad_beta,
     state_estimate = state_estimate,
@@ -248,7 +272,39 @@ generateSimulatedData <- function(
     
     calls_111_lagged_daily_infections = calls_111_lagged_daily_infections,
     daily_calls_111 = daily_calls_111
-  )    
+  )
+  
+  if (outputCalls){
+    stan_data$n_rho_calls_111_pieces <- n_rho_calls_111_pieces
+    stan_data$rho_calls_111_left_t <- rho_calls_111_left_t
+    stan_data$rho_calls_111_right_t <- rho_calls_111_right_t
+    stan_data$calls_111_length <- length(calls)
+    stan_data$calls_111_start <- calls_111_start
+    stan_data$calls_111 <- calls
+    
+    ground_truth$rho_calls_111 <- rho_calls_111
+    ground_truth$reciprocal_phi_calls_111 <- reciprocal_phi_calls_111
+    ground_truth$phi_calls_111 <- phi_calls_111
+    ground_truth$lag_weights_calls_111 <- lag_weights_calls_111
+    ground_truth$calls_111_lagged_daily_infections <- calls_111_lagged_daily_infections
+    ground_truth$daily_calls_111 <- daily_calls_111
+  }
+  
+  if (outputOnlineAssessments){
+    stan_data$n_rho_online_assessments_111_pieces <- n_rho_online_assessments_111_pieces
+    stan_data$rho_online_assessments_111_left_t <- rho_online_assessments_111_left_t
+    stan_data$rho_online_assessments_111_right_t <- rho_online_assessments_111_right_t
+    stan_data$online_assessments_111_length <- length(online_assessments)
+    stan_data$online_assessments_111_start <- online_assessments_111_start
+    stan_data$online_assessments_111 <- online_assessments
+    
+    ground_truth$rho_online_assessments_111 <- rho_online_assessments_111
+    ground_truth$reciprocal_phi_online_assessments_111 <- reciprocal_phi_online_assessments_111
+    ground_truth$phi_online_assessments_111 <- phi_online_assessments_111
+    ground_truth$lag_weights_online_assessments_111 <- lag_weights_online_assessments_111
+    ground_truth$online_assessments_111_lagged_daily_infections <- online_assessments_111_lagged_daily_infections
+    ground_truth$daily_online_assessments_111 <- daily_online_assessments_111
+  }
 
   list(stan_data = stan_data, ground_truth = ground_truth)
   
