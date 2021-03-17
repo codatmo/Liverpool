@@ -1,6 +1,6 @@
 ---
 title: "Liverpool Covid Model"
-author: "Alex Phillips"
+author: "Robert Moore, Alex Phillips"
 date: "10/3/2021"
 output: 
   html_document
@@ -10,11 +10,149 @@ output:
 # Model overview
 
 
+
 ## Problem description
 
 These models attempt to model the relationship between the numbers of phone calls to NHS 111 and/or NHS 111 online assessments reporting COVID-19 symptoms, and weekly recorded numbers of deaths from COVID-19.
 
 ## Model description
+
+The model is separated into two parts: the underlying deterministic transmission model governed by a system of ordinary differential equations (ODEs) for the spread of the disease through the population, and a stochastic observation model which links the states of the transmission model with the observed surveillance data.
+
+### Transmission model
+
+The transmission model assumes a single geographical region with a large population of identical (for instance, in terms of age and sex) individuals who come into contact with one another uniformly at random, but do not come into contact with individuals from other areas. It also assumes a closed population, that is no individuals migrate into or out of the population, for example as a result of births, non-COVID related deaths, or changes in permanent residence. The model divides the population into six disease states: (S) susceptible, (E) exposed, (I) infectious, (R) recovered, (T) terminally ill, and (D) dead. The exposed, infectious, and terminally ill disease states are each further partitioned into two substates, making the expected times spent by people in these states follow Erlang distributions. Below is a graphical illustration of the transmission model.
+
+```{tikz, tikz-ex, fig.cap = "Transmission Model", fig.ext = 'png', echo=FALSE}
+\usetikzlibrary{shapes}
+\usetikzlibrary{arrows}
+\usetikzlibrary{positioning}
+\usetikzlibrary{calc}
+\usetikzlibrary{fit}
+\begin{tikzpicture}[node distance=0.75cm,auto,>=latex',every node/.append style={align=center},int/.style={draw, circle, minimum size=0.9cm}]
+    \node [int] (S) {$S$};
+    \node [int, right=of S] (E_1) {$E_1$};
+    \node [int, right=of E_1] (E_2) {$E_2$};
+    \node [int, right=of E_2] (I_1) {$I_1$};
+    \node [int, right=of I_1] (I_2) {$I_2$};
+    \node [int, above right=of I_2] (T_1) {$T_1$};
+    \node [int, right=of T_1] (T_2) {$T_2$};
+    \node [int, right=of T_2] (D) {$D$};
+    \node [int, below right=of I_2] (R) {$R$};
+    
+    \path[->, auto=false] (S) edge node {$\beta \frac{I_1 + I_2}{N} S$ \\[2.5em]} (E_1);
+    \path[->, auto=false] (E_1) edge node {$\frac{2}{d_L} E_1$ \\[2.5em]} (E_2);
+    \path[->, auto=false] (E_2) edge node {$\frac{2}{d_L} E_2$ \\[2.5em]} (I_1);
+    \path[->, auto=false] (I_1) edge node {$\frac{2}{d_I} I_1$ \\[2.5em]} (I_2);
+    \path[->, auto=false] (I_2) edge node [left] {$\frac{2}{d_I} I_2 \omega$ \\[1.8em]} (T_1);
+    \path[->, auto=false] (T_1) edge node {$\frac{2}{d_T} T_1$ \\[2.5em]} (T_2);
+    \path[->, auto=false] (T_2) edge node {$\frac{2}{d_T} T_2$ \\[2.5em]} (D);
+    \path[->, auto=false] (I_2) edge node [right] {$\frac{2}{d_I} I_2 \left(1-\omega\right)$ \\[1.2em]} (R);
+\end{tikzpicture}
+```
+
+Through the random mixing of the population, infectious individuals come into contact with and are allowed to transmit the virus to susceptible individuals. A susceptible individual who has become exposed through one of these contacts is not initially infectious. A period of time elapses, while the virus replicates in their body before they become infectious and can transmit the virus onto members of the remaining susceptible population. After being infectious for some time, the individual may recover and become indefinitely immune to reinfection. Should the individual fail to recover, however, they will become terminally ill for a while before, unfortunately, dying of the disease.
+
+The number of individuals in each disease state varies with time according to the following system of ordinary differential equations:
+
+\begin{align}
+    \frac{dS}{dt} &= -\beta \frac{I_1 + I_2}{N} S \\
+    \frac{dE_1}{dt} &= \beta \frac{I_1 + I_2}{N} S - \frac{2}{d_L} E_1 \\
+    \frac{dE_2}{dt} &= \frac{2}{d_L} (E_1 - E_2) \\
+    \frac{dI_1}{dt} &= \frac{2}{d_L} E_2 - \frac{2}{d_I} I_1 \\
+    \frac{dI_2}{dt} &= \frac{2}{d_I} (I_1 - I_2) \\
+    \frac{dR}{dt} &= \frac{2}{d_I} I_2 \left(1 - \omega\right) \\
+    \frac{dT_1}{dt} &= \frac{2}{d_I} I_2 \omega - \frac{2}{d_T} T_1 \\
+    \frac{dT_2}{dt} &= \frac{2}{d_T} (T_1 - T_2) \\
+    \frac{dD}{dt} &= \frac{2}{d_T} T_2
+\end{align}
+
+\noindent where
+
+* $S(t)$ is the number of susceptible individuals who have not yet been infected and are at risk of infection,
+* $E_1(t) + E_2(t)$ is the number of exposed individuals who have been infected but are not yet infectious,
+* $I_1(t) + I_2(t)$ is the number of infectious individuals,
+* $T_1(t) + T_2(t)$ is the number of terminally ill individuals who have been infected and will die,
+* $R(t)$ is the number of recovered individuals,
+* $D(t)$ is the number of dead individuals,
+* $N = S(t) + E_1(t) + E_2(t) + I_1(t) + I_2(t) + R(t) + T_1(t) + T_2(t) + D(t)$ is the constant total number of individuals in the population,
+* $\beta(t)$ is the mean rate of contacts between individuals per unit time that are sufficient to lead to transmission if one of the individuals is infectious and the other is susceptible,
+* $d_L$ is the mean time between infection and onset of infectiousness,
+* $d_I$ is the mean time for which individuals are infectious,
+* $d_T$ is the mean time for which individuals are terminally ill,
+* $\omega$, the infection fatality ratio (IFR), is the proportion of infected individuals who will die.
+
+The mean rate of effective contacts, $\beta(t)$, is a piecewise linear function of time:
+
+\begin{equation}
+    \beta(t) = \sum_{i=1}^{N} \beta_i(t) \chi_{[t_{i-1}, t_i)}(t),
+\end{equation}
+
+\noindent where the mean rate of effective contacts during the $i$th time interval, $\beta_i(t)$, is given by
+
+\begin{equation}
+    \beta_i(t) = \frac{\beta_{r,i} - \beta_{l,i}}{t_i - t_{i-1}}(t - t_{i-1}) + \beta_{l, i}
+\end{equation}
+
+\noindent and
+
+\begin{equation}
+    \chi_{[t_{i-1}, t_i)}(t) = \begin{cases}
+    1 & \mathrm{if} \, t \in [t_{i-1}, t_i) \\
+    0 & \mathrm{if} \, t \notin [t_{i-1}, t_i)
+    \end{cases}
+\end{equation}
+
+### Observation Model
+
+The observation model captures the assumed stochastic process that generates the surveillance data from the the states of the transmission model. The weekly deaths and daily 111 call counts and online assessment counts are taken to have two completely different connections to the transmission model.
+
+#### Weekly deaths
+
+The transmission model provides a sequence $D(1), D(2), ..., D(t), ...$ in which the $t$th element is the total number individuals in the population who have died of COVID-19 by day $t$. The observation model differences the elements of this sequence and then aggregates the differences to get the number of individuals who have died of COVID-19 in each epidemiological week. The observed number of weekly deaths in week $w$, $\Delta D_{obs}(w)$, are assumed to have a negative binomial distribution parameterised by $\Delta D(w)$ and a parameter that controls overdispersion relative to the square of the mean $\phi_{deaths}$:
+
+\begin{equation}
+    \Delta D_{obs}(w) \sim \mathrm{NegBin}\left(\Delta D(w), \phi_{deaths}\right)
+\end{equation}
+
+#### Daily 111 calls
+
+The observation model supposes an unknown latency between individuals being exposed to the virus and calling NHS 111. This unknown latency is embodied by allowing the mean number of daily 111 calls at time $t$, $\mu_{\mathrm{calls}}(t)$, to depend not only on the number of new daily infection at time $t$, $\lambda(t)$, but also lagged values of the number of new daily infections. The observation model also assumes that the tendency for individuals to call NHS 111 if they have been infected varies with time. Putting both assumptions together leads to the expression for the mean number of daily 111 calls:
+
+\begin{equation}
+   \mu_{\mathrm{calls}}\left(t\right) = \rho_{\mathrm{calls}}\left(t\right) \sum_{l=0}^L w_l \lambda\left(t-l\right),
+\end{equation}
+
+\noindent where
+
+\begin{itemize}
+    \item $w_{{\mathrm{calls}},l}$ is the lag weight placed on the value of the number of new daily infections $l$ days ago,
+    \item $L$ is the maximum lag beyond which the number of new daily infections are assumed to have no affect on the number of 111 calls,
+    \item and $\rho_{\mathrm{calls}}\left(t\right)$ is the proportion of infected individuals being converted into 111 call counts, which is given by the following piecewise constant function of time:
+\end{itemize}
+
+\begin{equation}
+    \rho_{\mathrm{calls}}(t) = \sum_{i=1}^{N} \rho_{{\mathrm{calls}},i}(t) \chi_{[t_{i-1}, t_i)}(t),
+\end{equation}
+
+\noindent where $\rho_{\mathrm{calls},i}\left(t\right)$ is the proportion of infected individuals being converted into 111 call counts during the $i$th time interval, and the indicator for the $i$th time interval is
+
+\begin{equation}
+    \chi_{[t_{i-1}, t_i)}(t) = \begin{cases}
+    1 & \mathrm{if} \, t \in [t_{i-1}, t_i) \\
+    0 & \mathrm{if} \, t \notin [t_{i-1}, t_i)
+    \end{cases}
+\end{equation}
+
+The observed number of daily 111 calls at time $t$, $C\left(t\right)$, is assumed to have a negative binomial distribution with mean $\mu_{\mathrm{calls}}\left(t\right)$ and overdispersion relative to the square of the mean $\phi_{\mathrm{calls}}$:
+
+\begin{equation}
+    C\left(t\right) \sim \mathrm{NegBin}\left(\mu_{\mathrm{calls}}\left(t\right), \phi_{\mathrm{calls}}\right)
+\end{equation}
+
+#### Online assessments
+
+The observation model for the observed NHS 111 online assessments is similar to the observation model for NHS 111 phone calls, but with separately estimated $\rho_{\mathrm{online}}$, $\mu_{{\mathrm{online}}}$, $\phi_{\mathrm{online}}$, $w_{{\mathrm{online}},l}$, etc.
 
 ## Data 
 
