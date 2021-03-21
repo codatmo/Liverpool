@@ -1,12 +1,3 @@
 # Liverpool
-Here goes Liverpool's COVID model
 
-Suggested Structure
-
-/src
-
-/bin
-
-/doc
-
-/data
+Site is at https://codatmo.github.io/Liverpool/ which includes links back to this repository.
