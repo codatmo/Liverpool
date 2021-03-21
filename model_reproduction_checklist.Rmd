@@ -1,0 +1,435 @@
+---
+title: "Model reproduction checklist"
+author: "Breck Baldwin"
+date: "March 21, 2021"
+output: 
+  html_document:
+    includes:
+       in_header: _html/ga.html
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	results = "hide",
+	error = FALSE,
+	comment = ''
+)
+```
+
+# Model overview
+
+This document exists in the repository at [https://github.com/codatmo/Liverpool](https://github.com/codatmo/Liverpool) as `model_reproduction_checklist.Rmd` and rendered in html as [https://github.com/codatmo/Liverpool/model_reproduction_checklist.html](https://github.com/codatmo/Liverpool/model_reproduction_checklist.html). 
+
+The sister page [https://codatmo.github.io/Liverpool/index.html](https://codatmo.github.io/Liverpool/index.html) describes the model more fully. 
+
+This model is part of the CoDatMo (Co)vid (Dat)a (Mo)deling site (https://codatmo.github.io/) which is intended to replicate and make available important COVID models written in Bayesian modeling languages like Stan or PyMC3. 
+
+### Validation checklist items 
+
+* Model released on github: https://github.com/codatmo/Liverpool
+* Problem description
+* Model description: Research goals, references, supplementary description as necessary.
+* Data
+  + Data generating process
+  + Data munging and examination
+* Stan program
+* Running model
+  + Small data set to validate model execution (not done)
+  + Run on availble data
+  + Examine model output
+* Model 
+* Model validation
+  + Report posterior diagnostics
+  + Prior predictive check parameters/predictions
+  + Parameter recovery with simulated data
+  + Posterior predictive check
+  + Parameter interpretation (not done)
+  + Cross validation (not done)
+  + Simulation based calibration (SBC) (not done)
+* Compute environment
+
+## Problem description
+
+Model goal is to estimate COVID hospitalizations based on reports from 111 calls to government services and/or website reports. 
+
+## Model description
+See [https://codatmo.github.io/Liverpool/index.html](https://codatmo.github.io/Liverpool/index.html) for detailed description. 
+
+## Data 
+
+There is a script to generate simulated data. 
+```{r}
+source("src/scripts/generateSimulatedData.R")
+generatedData <- generateSimulatedData(
+  seed = 0,
+  maxTime = 100,
+  population = 1000000,
+  n_beta_pieces = 20,
+  n_rho_calls_111_pieces = 10,
+  calls_111_start = 30
+)
+stan_data <- generatedData$stan_data
+stan_data$compute_likelihood <- 1 # controls whether likelihood is computed
+ground_truth <- generatedData$ground_truth
+```
+
+The script does a fair amount of data munging, see below, but the data analogous to production data are two data sources:
+
+```{r results='show'}
+deaths <- stan_data$deaths
+calls_111 <- stan_data$calls_111
+cat(paste(sprintf("Weekly COVID death count=%d, Days of 111_calls (7 days per weekly count)=%d", 
+                  length(deaths),
+                  length(calls_111))))
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(gridExtra)
+
+day <- 1:length(calls_111)
+data.df <- data.frame(calls_111,day)
+data.df$deaths <- ifelse(data.df$day %% 7 == 0, deaths[data.df$day %/% 7], NA)
+
+ggplot(data.df) +
+  aes(x=1:length(calls_111), y=calls_111) +
+  geom_line() -> p1
+
+ggplot(data.df) +
+  aes(x=1:length(calls_111), y=deaths) +
+  geom_point() -> p2
+
+grid.arrange(p1, p2, ncol=2)
+```
+
+### Data munging
+
+The data undergo considerable processing before being ready to fit with Stan. There are 22 data parameters of which two are the `deaths` and `calls_111` shown above. The data elaboration proceeds as follows:
+
+```{r}
+deaths <- stan_data$deaths
+calls_111 <- stan_data$calls_111
+
+# below are constants
+T <- 100
+maxTime <- T
+initial_time <- 0
+n_disease_states <- 8
+n_beta_pieces <- 20
+calls_111_start <- 30
+n_rho_calls_111_pieces <- 10
+population <- 1e+06
+
+beta_pieceLength <- ceiling(maxTime / n_beta_pieces)
+beta_left_t <- seq(0, maxTime - 1, by = beta_pieceLength)
+beta_right_t <- c(beta_left_t[2:n_beta_pieces], maxTime + 1)
+
+real_data_length = length(beta_left_t) + length(beta_right_t) + 1
+real_data = c(beta_left_t, beta_right_t, population)
+integer_data = c(
+  maxTime,
+  length(beta_left_t),
+  length(beta_right_t),
+  length(beta_left_t),
+  n_disease_states
+)
+integer_data_length <- length(integer_data)
+
+rho_calls_pieceLength <-
+  ceiling((maxTime - calls_111_start) / n_rho_calls_111_pieces)
+rho_calls_111_left_t <-
+  seq(calls_111_start, maxTime - 1, by = rho_calls_pieceLength)
+rho_calls_111_right_t <-
+  c(rho_calls_111_left_t[2:n_rho_calls_111_pieces], maxTime + 1)
+
+times <- 1:T
+deaths_length <- length(deaths)
+deaths_starts <- seq(from = 1, to = deaths_length * 7, by = 7)
+deaths_stops <- seq(from = 7, to = deaths_length * 7, by = 7)
+calls_111_length <- length(calls_111)
+
+stan_data2 <- list(
+  initial_time = initial_time,
+  n_beta_pieces = n_beta_pieces,
+  beta_left_t = beta_left_t,
+  beta_right_t = beta_right_t,
+  T = maxTime,
+  times = times,
+  n_disease_states = n_disease_states,
+  population = population,
+  deaths_length = length(deaths),
+  deaths_starts = deaths_starts,
+  deaths_stops = deaths_stops,
+  deaths = deaths,
+  real_data_length = length(beta_left_t) + length(beta_right_t) + 1,
+  real_data = c(beta_left_t, beta_right_t, population),
+  integer_data_length = 5,
+  integer_data = c(
+    maxTime,
+    length(beta_left_t),
+    length(beta_right_t),
+    length(beta_left_t),
+    n_disease_states
+  ),
+  n_rho_calls_111_pieces = n_rho_calls_111_pieces,
+  rho_calls_111_left_t = rho_calls_111_left_t,
+  rho_calls_111_right_t = rho_calls_111_right_t,
+  calls_111_start = calls_111_start,
+  calls_111 = calls_111,
+  calls_111_length = calls_111_length,
+  compute_likelihood = 1
+)
+
+# test that data has been properly munged.
+for (varname in names(stan_data)) {
+  # print(paste("trying:",varname))
+  if (!varname %in% names(stan_data2)) {
+    print(paste("NULL for ", varname))
+  }
+  if (!all(stan_data[[varname]] == stan_data2[[varname]])) {
+    print(paste("mismatch ", varname))
+  }
+}
+```
+
+## Stan program
+
+The Stan model is located at `src/models/deaths_and_111_calls.stan`:
+
+```{r results='show'}
+stan_file <- "src/models/deaths_and_111_calls.stan"
+lines <- readLines(stan_file)
+cat(paste(lines, "\n", sep=""), sep="")
+```
+
+## Running model
+
+First some inits are setup:
+```{r}
+set.seed(0)
+initf <- function() {
+  n_beta_pieces <- stan_data$n_beta_pieces
+  
+  initial_state_raw = c(runif(1, min = 0.99999, max = 1.0), runif(1, min = 0.0, max = 1.0))
+  beta_left = exp(runif(n_beta_pieces, min = -2, max = 0.5))
+  beta_right = exp(runif(n_beta_pieces, min = -2, max = 0.5))
+  dL = runif(1, min = 3.5, max = 4.0)
+  dI = runif(1, min = 2.2, max = 2.6)
+  dT = runif(1, min = 11.0, max = 13.0)
+  omega = 1/(1 + exp(-runif(1, min = -5, max = -3)))
+  
+  list(
+    initial_state_raw = initial_state_raw,
+    beta_left = beta_left,
+    beta_right = beta_right,
+    dL = dL,
+    dI = dI,
+    dT = dT,
+    omega = omega
+  )
+}
+
+```
+
+The code is run as:
+
+```{r results='show'}
+library(cmdstanr)
+library(rstan)
+library(xfun)
+
+model <- cmdstan_model(file.path("src","models","deaths_and_111_calls.stan"))
+num_warmup <- 1000
+num_samples <- 1000
+num_chains <- 4
+
+fit_1 <- 
+  xfun::cache_rds({model$sample(data=stan_data2, 
+                                seed=999, 
+                                chains=num_chains, 
+                                init = initf, 
+                                num_warmup=num_warmup, 
+                                num_samples=num_samples,
+                                output_dir="output")},
+              rerun=FALSE, file="fit1", dir="_cache/")
+
+rs_fit_1 <- rstan::read_stan_csv(fit_1$output_files())
+
+print(fit_1$time())
+```
+
+#running some warmup and just 100 draws with two chains. 
+
+Viewing a text based summary of the fit, this will be very long, it is commented out and not run:
+
+```{r}
+# fit_1$cmdstan_summary()
+```
+
+## Model validation
+
+Below are the diagnostics used to help validate the model. 
+
+### Run posterior diagnostics
+
+There are standard diagnostics that look for errors in the posterior.
+
+```{r}
+fit_1$cmdstan_diagnose()
+```
+
+* Treedepth warnings 
+* Divergence check passed
+* E-BFMI satisfactory
+* R-hat values satisfactory
+
+### Prior predictive check
+
+The prior predictive check estimates the model parameters without the likelihood being used. The resulting draws are then used to predict new data via predictive application of the likelihood given the draws. Note that `compute_likelihood = 0` prevents the likelihood being computed in the model fitting step. 
+
+```{r}
+stan_data_no_likelihood <- stan_data2
+stan_data_no_likelihood$compute_likelihood <- 0
+
+fit_2 <- xfun::cache_rds({model$sample(data=stan_data_no_likelihood, seed=999,
+                                           chains=num_chains, init = initf, 
+                                           num_warmup=num_warmup,
+                                           num_samples=num_samples,
+                                           output_dir="output")},
+                             rerun=FALSE, file="fit2", dir="_cache/")
+
+rs_fit_2 <- rstan::read_stan_csv(fit_2$output_files())
+rs_ex_fit_2 <- rstan::extract(rs_fit_2)
+
+random_draws <- sample(1:nrow(rs_ex_fit_2$pred_deaths), 10, replace=FALSE)
+deaths_draws <- t(rs_ex_fit_2$pred_deaths[random_draws,])
+deaths_draws.df <- data.frame(deaths_draws) 
+names(deaths_draws.df) <- random_draws
+draw_names <- colnames(deaths_draws.df)
+weeks <- 1:nrow(deaths_draws.df)
+p_data2.df <- cbind(deaths,weeks,deaths_draws.df)
+
+p_long_data <- gather(p_data2.df, draw, deaths_sim, draw_names)
+
+p3 <- ggplot(data=p_long_data, aes(x=weeks)) +
+            geom_line(aes(y=deaths_sim, group=draw, color=draw), size=.5) +
+            geom_line(aes(y=deaths), color="black", size=.5)
+p3
+```
+
+Above we see the posterior of the priors without seeing any data. Generally some justification for prior distributions is expected. The above are weakly informative in that they cover a broad range of plausible values. 
+
+```{r}
+call_draws <- t(rs_ex_fit_2$pred_calls_111[random_draws,]) #keep same draws
+call_draws.df <- data.frame(call_draws) 
+names(call_draws.df) <- random_draws
+days <- 1:nrow(call_draws.df)
+p_data3.df <- cbind(calls_111,days,call_draws.df)
+
+p_long_data3 <- gather(p_data3.df, draw, calls_sim, draw_names)
+
+p4 <- ggplot(data=p_long_data3, aes(x=days)) +
+            geom_point(aes(y=calls_sim, group=draw, color=draw), size=.5) +
+            geom_line(aes(y=calls_111), color="black", size=.5)
+p4
+```
+
+### Parameter recovery with simulated data
+
+Parameter recovery establishes that for some small set of values the model reasons properly. We pick a draw from the above distributions, simulate data with it and then attempt to recover the parameters that we simulated with. We can look at the above graph and pick expected outliers or close to actual data. For this we pick 42 as a middle-of-the-road example. 
+
+```{r}
+library(bayesplot)
+#Pick one arbitrary draw from the prior distribution
+draw <- 42
+stan_data_3 <- stan_data
+stan_data_3$calls_111 <- rs_ex_fit_2$pred_calls_111[42,]
+stan_data_3$deaths <- rs_ex_fit_2$pred_deaths[42,]
+stan_data_3$compute_likelihood <- 1
+
+fit_3 <- xfun::cache_rds({model$sample(data=stan_data_3, seed=999,
+                                           chains=num_chains, init = initf, 
+                                           num_warmup=num_warmup,
+                                           num_samples=num_samples,
+                                           output_dir="output")},
+                             rerun=FALSE, file="fit3", dir="_cache/")
+
+rs_fit_3 <- rstan::read_stan_csv(fit_3$output_files())
+rs_fit_3_draws <- rstan::extract(rs_fit_3)
+
+mcmc_intervals(fit_3$draws(variables=c("dL", "dI", "dT","omega")))
+```
+
+A subset of the estimated paramters shown, mean, 50% and 90% intervals indicated. Actual values below:
+
+```{r results='show'}
+report <- paste(sprintf("Draw number %d", draw),
+sprintf("actual dL=%.2f", rs_ex_fit_2$dL[draw]), 
+sprintf("actual dI=%.2f", rs_ex_fit_2$dI[draw]), 
+sprintf("actual dT=%.2f", rs_ex_fit_2$dT[draw]), 
+sprintf("actual omega=%.2f", rs_ex_fit_2$omega[draw]), 
+sep="\n")
+cat(report)
+```
+
+### Posterior predictive check
+
+Compare predicted data from original run that used actual data.
+
+#### Predict deaths
+ 
+```{r}
+rs_fit_1_draws <- rstan::extract(rs_fit_1)
+
+summary.df <- as.data.frame(summary(rs_fit_1,pars=c("pred_deaths"), probs=c(.05,.5,.95))$summary)
+weeks <- 1:length(deaths)
+all.df <- cbind(summary.df, deaths, weeks) 
+colnames(all.df) <- make.names(colnames(all.df)) # to remove % in the col names
+
+p4 <- ggplot(all.df, mapping = aes(x = weeks)) +
+  geom_ribbon(aes(ymin = X5., ymax = X95.), fill = "orange", alpha = 0.6) +
+  geom_line(mapping = aes(y = X50.)) +
+  geom_point(mapping = aes(y = deaths)) +
+  labs(x = "Week", y = "Deaths")
+p4
+```
+
+Actual deaths are black dots, mean predicted deaths black line, orange ribbon spans central 95% of draws.
+
+#### Predict 111 calls
+
+```{r }
+rs_fit_1_draws <- rstan::extract(rs_fit_1)
+
+summary_2.df <- as.data.frame(summary(rs_fit_1,pars=c("pred_calls_111"), probs=c(.05,.5,.95))$summary)
+days <- 1:length(calls_111)
+all_2.df <- cbind(summary_2.df, calls_111, days) 
+colnames(all_2.df) <- make.names(colnames(all_2.df)) # to remove % in the col names
+
+p5 <- ggplot(all_2.df, mapping = aes(x = days)) +
+  geom_ribbon(aes(ymin = X5., ymax = X95.), fill = "green", alpha = 0.6) +
+  geom_line(mapping = aes(y = X50.)) +
+  geom_point(mapping = aes(y = calls_111)) +
+  labs(x = "Day", y = "Calls 111")
+p5
+```
+
+Actual calls are black dots, mean predicted calls black line, green ribbon spans central 90% of draws.
+
+### Parameter interpretation
+
+Impact of param changes on predictions.
+
+### Cross validation
+
+### SBC validation
+
+### Computing environment
+```{r results='show'}
+devtools::session_info()
+```
+
