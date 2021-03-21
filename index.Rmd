@@ -9,7 +9,11 @@ output:
 
 # Model overview
 
+This document exists in the repository at [https://github.com/codatmo/Liverpool](https://github.com/codatmo/Liverpool) as `index.Rmd` and rendered in html as `index.html`. The releases can be downloaded at [https://github.com/codatmo/Liverpool/releases](https://github.com/codatmo/Liverpool/releases) which includes this file. 
 
+There is a [https://github.com/codatmo/Liverpool/model_reproduction_checklist.html](https://github.com/codatmo/Liverpool/model_reproduction_checklist.html) which applies standard model validation to the model. 
+
+This model is part of the CoDatMo (Co)vid (Dat)a (Mo)deling site (https://codatmo.github.io/) which is intended to replicate and make available important COVID models written in Bayesian modeling languages like Stan or PyMC3. 
 
 ## Problem description
 
@@ -177,7 +181,7 @@ This data can then be fit to the deaths and calls model:
 
 ```{r eval = F}
 library(rstan)
-options(mc.cores = parallel::detectCores()).
+options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 
 initf <- function() {
