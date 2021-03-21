@@ -175,30 +175,39 @@ generateSimulatedData <- function(
   state_estimate <- rbind(initial_state, state_estimate)
   
   #Calculate daily numbers of infections and numbers of deaths
-  daily_infections <- as.numeric(state_estimate[1:nrow(state_estimate)-1,1]) - as.numeric(state_estimate[2:nrow(state_estimate),1])
-  daily_deaths <- as.numeric(state_estimate[2:nrow(state_estimate),8]) - as.numeric(state_estimate[1:maxTime,8])
+  daily_infections <- as.numeric(state_estimate[1:nrow(state_estimate)-1,1]) -
+    as.numeric(state_estimate[2:nrow(state_estimate),1])
+  daily_deaths <- as.numeric(state_estimate[2:nrow(state_estimate),8]) - 
+    as.numeric(state_estimate[1:maxTime,8])
   
 
   #Calculate daily calls given lagged infections
   calls_111_lagged_daily_infections <- lag_weights_calls_111[1] * daily_infections
   for(i in 1:max_lag){
-    calls_111_lagged_daily_infections <-  calls_111_lagged_daily_infections + lag_weights_calls_111[i+1] * c(rep(0,i), daily_infections[1:(length(daily_infections) - i)])
+    calls_111_lagged_daily_infections <-  calls_111_lagged_daily_infections + 
+      lag_weights_calls_111[i+1] * c(rep(0,i), daily_infections[1:(length(daily_infections) - i)])
   }
   
   #Calculate daily online assessments given lagged infections
   online_assessments_111_lagged_daily_infections <- lag_weights_online_assessments_111[1] * daily_infections
   for(i in 1:max_lag){
-    online_assessments_111_lagged_daily_infections <- online_assessments_111_lagged_daily_infections + lag_weights_online_assessments_111[i+1] * c(rep(0,i), daily_infections[1:(length(daily_infections) - i)])
+    online_assessments_111_lagged_daily_infections <- online_assessments_111_lagged_daily_infections + 
+      lag_weights_online_assessments_111[i+1] * 
+      c(rep(0,i), daily_infections[1:(length(daily_infections) - i)])
   }
   
   daily_calls_111 = rep(0,length(daily_infections))
   for(i in 1:n_rho_calls_111_pieces){
-    daily_calls_111[rho_calls_111_left_t[i]:(rho_calls_111_right_t[i]-1)] <- calls_111_lagged_daily_infections[rho_calls_111_left_t[i]:(rho_calls_111_right_t[i]-1)] * rho_calls_111[i]
+    daily_calls_111[rho_calls_111_left_t[i]:(rho_calls_111_right_t[i]-1)] <- 
+      calls_111_lagged_daily_infections[rho_calls_111_left_t[i]:(rho_calls_111_right_t[i]-1)] * 
+      rho_calls_111[i]
   }
   
   daily_online_assessments_111 = rep(0,length(daily_infections))
   for(i in 1:n_rho_online_assessments_111_pieces){
-    daily_online_assessments_111[rho_online_assessments_111_left_t[i]:(rho_online_assessments_111_right_t[i]-1)] <- online_assessments_111_lagged_daily_infections[rho_online_assessments_111_left_t[i]:(rho_online_assessments_111_right_t[i]-1)] * rho_online_assessments_111[i]
+    daily_online_assessments_111[rho_online_assessments_111_left_t[i]:(rho_online_assessments_111_right_t[i]-1)] <- 
+      online_assessments_111_lagged_daily_infections[rho_online_assessments_111_left_t[i]:(rho_online_assessments_111_right_t[i]-1)] *
+      rho_online_assessments_111[i]
   }
   
   #Sample weekly death reports
