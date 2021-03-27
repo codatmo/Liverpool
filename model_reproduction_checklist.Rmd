@@ -60,6 +60,18 @@ See [https://codatmo.github.io/Liverpool/index.html](https://codatmo.github.io/L
 
 ## Data 
 
+Actual data is available as described at [https://codatmo.github.io/Data/index.html](https://codatmo.github.io/Data/index.html). An .RDS file exists locally at `nhs_regions_111_calls.RDS`.
+
+```{r}
+calls_111.df <- readRDS("data/nhs_regions_111_calls.Rds")
+deaths.df <- readRDS("data/nhs_regions_deaths.Rds")
+
+calls_111 <- as.numeric(calls_111.df$London[1:71])
+deaths <- as.numeric(deaths.df$London[1:14])
+
+```
+
+
 There is a script to generate simulated data. 
 ```{r}
 source("src/scripts/generateSimulatedData.R")
@@ -71,16 +83,16 @@ generatedData <- generateSimulatedData(
   n_rho_calls_111_pieces = 10,
   calls_111_start = 30
 )
-stan_data <- generatedData$stan_data
-stan_data$compute_likelihood <- 1 # controls whether likelihood is computed
-ground_truth <- generatedData$ground_truth
+stan_data_sim <- generatedData$stan_data
+stan_data_sim$compute_likelihood <- 1 # controls whether likelihood is computed
+ground_truth_sim <- generatedData$ground_truth
 ```
 
 The script does a fair amount of data munging, see below, but the data analogous to production data are two data sources:
 
 ```{r results='show'}
-deaths <- stan_data$deaths
-calls_111 <- stan_data$calls_111
+#deaths <- stan_data$deaths
+#calls_111 <- stan_data$calls_111
 cat(paste(sprintf("Weekly COVID death count=%d, Days of 111_calls (7 days per weekly count)=%d", 
                   length(deaths),
                   length(calls_111))))
@@ -111,8 +123,8 @@ grid.arrange(p1, p2, ncol=2)
 The data undergo considerable processing before being ready to fit with Stan. There are 22 data parameters of which two are the `deaths` and `calls_111` shown above. The data elaboration proceeds as follows:
 
 ```{r}
-deaths <- stan_data$deaths
-calls_111 <- stan_data$calls_111
+# deaths <- stan_data$deaths
+# calls_111 <- stan_data$calls_111
 
 # below are constants
 T <- 100
@@ -152,7 +164,7 @@ deaths_starts <- seq(from = 1, to = deaths_length * 7, by = 7)
 deaths_stops <- seq(from = 7, to = deaths_length * 7, by = 7)
 calls_111_length <- length(calls_111)
 
-stan_data2 <- list(
+stan_data <- list(
   initial_time = initial_time,
   n_beta_pieces = n_beta_pieces,
   beta_left_t = beta_left_t,
@@ -185,15 +197,15 @@ stan_data2 <- list(
 )
 
 # test that data has been properly munged.
-for (varname in names(stan_data)) {
-  # print(paste("trying:",varname))
-  if (!varname %in% names(stan_data2)) {
-    print(paste("NULL for ", varname))
-  }
-  if (!all(stan_data[[varname]] == stan_data2[[varname]])) {
-    print(paste("mismatch ", varname))
-  }
-}
+# for (varname in names(stan_data)) {
+#   # print(paste("trying:",varname))
+#   if (!varname %in% names(stan_data2)) {
+#     print(paste("NULL for ", varname))
+#   }
+#   if (!all(stan_data[[varname]] == stan_data2[[varname]])) {
+#     print(paste("mismatch ", varname))
+#   }
+# }
 ```
 
 ## Stan program
@@ -248,7 +260,7 @@ num_samples <- 1000
 num_chains <- 4
 
 fit_1 <- 
-  xfun::cache_rds({model$sample(data=stan_data2, 
+  xfun::cache_rds({model$sample(data=stan_data, 
                                 seed=999, 
                                 chains=num_chains, 
                                 init = initf, 
@@ -292,7 +304,7 @@ fit_1$cmdstan_diagnose()
 The prior predictive check estimates the model parameters without the likelihood being used. The resulting draws are then used to predict new data via predictive application of the likelihood given the draws. Note that `compute_likelihood = 0` prevents the likelihood being computed in the model fitting step. 
 
 ```{r}
-stan_data_no_likelihood <- stan_data2
+stan_data_no_likelihood <- stan_data
 stan_data_no_likelihood$compute_likelihood <- 0
 
 fit_2 <- xfun::cache_rds({model$sample(data=stan_data_no_likelihood, seed=999,
@@ -300,7 +312,7 @@ fit_2 <- xfun::cache_rds({model$sample(data=stan_data_no_likelihood, seed=999,
                                            num_warmup=num_warmup,
                                            num_samples=num_samples,
                                            output_dir="output")},
-                             rerun=FALSE, file="fit2", dir="_cache/")
+                             rerun=TRUE, file="fit2", dir="_cache/")
 
 rs_fit_2 <- rstan::read_stan_csv(fit_2$output_files())
 rs_ex_fit_2 <- rstan::extract(rs_fit_2)
@@ -356,7 +368,7 @@ fit_3 <- xfun::cache_rds({model$sample(data=stan_data_3, seed=999,
                                            num_warmup=num_warmup,
                                            num_samples=num_samples,
                                            output_dir="output")},
-                             rerun=FALSE, file="fit3", dir="_cache/")
+                             rerun=TRUE, file="fit3", dir="_cache/")
 
 rs_fit_3 <- rstan::read_stan_csv(fit_3$output_files())
 rs_fit_3_draws <- rstan::extract(rs_fit_3)
