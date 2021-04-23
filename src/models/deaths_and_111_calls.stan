@@ -157,6 +157,7 @@ transformed parameters {
   vector[T+1] D;
   vector[T] daily_infections;
   vector[T] daily_deaths;
+  vector[T] effective_reproduction_number;
   vector[T] calls_111_lagged_daily_infections;
   vector[T] daily_calls_111;
 
@@ -199,6 +200,11 @@ transformed parameters {
 
   daily_infections = S[:T] - S[2:] + machine_precision();
   daily_deaths = D[2:] - D[:T];
+
+  {
+    vector[T+1] I = I1 + I2;
+    effective_reproduction_number= (daily_infections ./ I[:T])*dI;
+  }
 
   calls_111_lagged_daily_infections = lag_weights_calls_111[1]*daily_infections;
 
