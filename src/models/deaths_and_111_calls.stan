@@ -124,8 +124,52 @@ transformed data {
   real mu_dT = 16.00;
   real sigma_dT = 0.71;
   int max_lag = 13;
+
+  //Init values on unconstrained scales for some parameters
+  real initial_state_raw_min[2];
+  real initial_state_raw_max[2];
+
+  real beta_left_min = -2; // => beta_left_init = exp(runif(-2,0.5))
+  real beta_left_max = 0.5;
+  real beta_right_min = -2;
+  real beta_right_max = 0.5;
+
+  real dL_min = log(mu_dL - 5*sigma_dL);
+  real dL_max = log(mu_dL + 5*sigma_dL);
+  real dI_min = log(mu_dI - 5*sigma_dI);
+  real dI_max = log(mu_dI + 5*sigma_dI);
+  real dT_min = log(mu_dT - 5*sigma_dT);
+  real dT_max = log(mu_dT + 5*sigma_dT);
+
+  real omega_min = -5;
+  real omega_max = -3;
+
+  initial_state_raw_min[1] = logit(0.999);
+  initial_state_raw_min[2] = logit(0.001);
+  initial_state_raw_max[1] = logit(0.01);
+  initial_state_raw_max[2] = logit(0.99999);
+
 }
 parameters {
+  //The transformations of these parameters
+  //below are constructed such that
+  //when these unconstrained parameters are initialised
+  //with the default unif(-2,2), the transformed versions
+  //are initialised the way we want e.g. unif(0.99,1.0)
+  real initial_state_raw_unconstrained[2];
+  real beta_left_unconstrained[n_beta_pieces];
+  real beta_right_unconstrained[n_beta_pieces];
+  real dL_unconstrained;
+  real dI_unconstrained;
+  real dT_unconstrained;
+  real omega_unconstrained;
+
+  real<lower=0> reciprocal_phi_deaths;
+  real<lower=0> reciprocal_phi_calls_111;
+  real<lower=0> rho_calls_111[n_rho_calls_111_pieces];
+  simplex[max_lag+1] lag_weights_calls_111;
+}
+transformed parameters {
   real<lower=0, upper=1> initial_state_raw[2];
   real<lower=0> beta_left[n_beta_pieces];
   real<lower=0> beta_right[n_beta_pieces];
@@ -133,12 +177,7 @@ parameters {
   real<lower=0> dI;
   real<lower=0> dT;
   real<lower=0, upper=1> omega;
-  real<lower=0> reciprocal_phi_deaths;
-  real<lower=0> reciprocal_phi_calls_111;
-  real<lower=0> rho_calls_111[n_rho_calls_111_pieces];
-  simplex[max_lag+1] lag_weights_calls_111;
-}
-transformed parameters {
+
   real initial_state[n_disease_states];
   real grad_beta[n_beta_pieces];
   real nu;
@@ -160,6 +199,14 @@ transformed parameters {
   vector[T] effective_reproduction_number;
   vector[T] calls_111_lagged_daily_infections;
   vector[T] daily_calls_111;
+
+  initial_state_raw = inv_logit(initial_state_raw_unconstrained); //As is "standard" for variable in [0,1]
+  beta_left = exp(beta_left_unconstrained);
+  beta_right = exp(beta_right_unconstrained);
+  dL = exp(dL_unconstrained);
+  dI = exp(dI_unconstrained);
+  dT = exp(dT_unconstrained);
+  omega = inv_logit(omega_unconstrained);
 
   initial_state[1] = (population-5.0)*initial_state_raw[1] + 1.0;
   initial_state[2] = (population-5.0)*(1.0-initial_state_raw[1])*initial_state_raw[2]/2.0 + 1.0;
@@ -225,12 +272,30 @@ transformed parameters {
 model {
   initial_state_raw[1] ~ beta(5.0, 0.5);
   initial_state_raw[2] ~ beta(1.1, 1.1);
+  //Jacobian adjustments:
+  target += -initial_state_raw_unconstrained[1] * (initial_state_raw_max[1] - initial_state_raw_min[1])/4 - 2*log1p_exp(-initial_state_raw_unconstrained[1] * (initial_state_raw_max[1] - initial_state_raw_min[1])/4 - initial_state_raw_min[1] -(initial_state_raw_max[1] - initial_state_raw_min[1])/2);
+  target += -initial_state_raw_unconstrained[2] * (initial_state_raw_max[2] - initial_state_raw_min[2])/4 - 2*log1p_exp(-initial_state_raw_unconstrained[2] * (initial_state_raw_max[2] - initial_state_raw_min[2])/4 - initial_state_raw_min[2] -(initial_state_raw_max[2] - initial_state_raw_min[2])/2);
+
   beta_left ~ normal(0, 0.5);
   beta_right ~ normal(0, 0.5);
+  //Jacobian adjustments:
+  for (i in 1:n_beta_pieces){
+    target += (beta_left_max - beta_left_min)/4 * beta_left_unconstrained[i];
+    target += (beta_right_max - beta_right_min)/4 * beta_right_unconstrained[i];
+  }
+
   dL ~ normal(mu_dL, sigma_dL);
   dI ~ normal(mu_dI, sigma_dI);
   dT ~ normal(mu_dT, sigma_dT);
+  //Jacobian adjustments:
+  target += dL_unconstrained * (dL_max - dL_min)/4;
+  target += dI_unconstrained * (dI_max - dI_min)/4;
+  target += dT_unconstrained * (dT_max - dT_min)/4;
+
   omega ~ beta(100, 9803);
+  //Jacobian adjustment:
+  target += -omega_unconstrained * (omega_max - omega_min)/4 - 2*log1p_exp(-omega_unconstrained * (omega_max - omega_min)/4 - omega_min -(omega_max - omega_min)/2);
+
   reciprocal_phi_deaths ~ exponential(5);
   reciprocal_phi_calls_111 ~ exponential(5);
   rho_calls_111 ~ normal(0, 0.5);
