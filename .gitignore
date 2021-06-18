@@ -1,0 +1,7 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+src/models/*.rds
+src/models/*.hpp
+src/models/*.exe
