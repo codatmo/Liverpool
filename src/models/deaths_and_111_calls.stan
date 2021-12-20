@@ -200,13 +200,19 @@ transformed parameters {
   vector[T] calls_111_lagged_daily_infections;
   vector[T] daily_calls_111;
 
-  initial_state_raw = inv_logit(initial_state_raw_unconstrained); //As is "standard" for variable in [0,1]
-  beta_left = exp(beta_left_unconstrained);
-  beta_right = exp(beta_right_unconstrained);
-  dL = exp(dL_unconstrained);
-  dI = exp(dI_unconstrained);
-  dT = exp(dT_unconstrained);
-  omega = inv_logit(omega_unconstrained);
+  for (i in 1:2) {
+    initial_state_raw[i] = inv_logit(initial_state_raw_unconstrained[i] * (initial_state_raw_max[i]-initial_state_raw_min[i])/4 + (initial_state_raw_max[i]-initial_state_raw_min[i])/2 + initial_state_raw_min[i]);
+  }
+
+  for (i in 1:n_beta_pieces) {
+    beta_left[i] = exp(beta_left_unconstrained[i] * (beta_left_max - beta_left_min)/4 + (beta_left_max - beta_left_min)/4 + beta_left_min);
+    beta_right[i] = exp(beta_right_unconstrained[i] * (beta_right_max - beta_right_min)/4 + (beta_right_max - beta_right_min)/2 + beta_right_min);
+  }
+
+  dL = exp(dL_unconstrained * (dL_max - dL_min)/4 + dL_min + (dL_max - dL_min)/2);
+  dI = exp(dI_unconstrained * (dI_max - dI_min)/4 + dI_min + (dI_max - dI_min)/2);
+  dT = exp(dT_unconstrained * (dT_max - dT_min)/4 + dT_min + (dT_max - dT_min)/2);
+  omega = inv_logit(omega_unconstrained * (omega_max - omega_min)/4 + (omega_max - omega_min)/2 + omega_min);
 
   initial_state[1] = (population-5.0)*initial_state_raw[1] + 1.0;
   initial_state[2] = (population-5.0)*(1.0-initial_state_raw[1])*initial_state_raw[2]/2.0 + 1.0;
